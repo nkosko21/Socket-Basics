@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+
+import socket
+import json
+import sys
+import ssl
+
+all_words = []
+# with open("/Users/nick/Documents/NORTHEASTERN/Spring 2023 Academic/"
+#           "CS3700/Project 1/Project1WordList.txt", "r") as f:
+with open("Project1WordList.txt", "r") as f:
+    for line in f:
+        all_words.append(line.strip())
+
+final_guess = ["", "", "", "", ""]
+
+
+wrong_letters = []  # letters that do not appear in the final word
+correct_letters = []  # letters that appear in the final word
+
+
+# takes in the guess and adds the correct and incorrect letters to their pertaining lists and
+# removes the incorrect words from the word list
+def analyze_guess(word):
+    temp_wrong_letters = []  # letters that have not been removed before
+    temp_correct_letters = []  # letters that have not been filtered before
+    counter = 0
+
+    for x in word["marks"][:]:
+        letter = word["word"][counter]
+
+        if x == 0 and letter not in wrong_letters and letter not in temp_wrong_letters \
+                and letter not in correct_letters:  # if x has not been removed yet
+            temp_wrong_letters.append(letter)
+            wrong_letters.append(letter)
+        elif x == 1 and letter not in correct_letters \
+                and letter not in temp_correct_letters:  # if x has not been filtered yet
+            temp_correct_letters.append(letter)
+            correct_letters.append(letter)
+        elif x == 2:
+            if letter not in correct_letters \
+                    and letter not in temp_correct_letters:  # if x has not been filtered yet
+                temp_correct_letters.append(letter)
+                correct_letters.append(letter)
+            final_guess.pop(counter)
+            final_guess.insert(counter, letter)  # adds the correct letter to the final guess
+        counter += 1
+
+    remove_guess(temp_wrong_letters, temp_correct_letters)
+
+
+# removes words with the letters contained in temp_wrong_letters and
+# removes words without the letters contained in temp_correct_letters
+def remove_guess(temp_wrong_letters, temp_correct_letters):
+    for word in all_words[:]:
+        stop = False
+
+        counter = 0
+        for letter in final_guess[:]:
+            if word[counter] != letter and stop is False and letter != "":
+                if word[counter] not in correct_letters:  # for double letters
+                    all_words.remove(word)
+                    stop = True
+            counter += 1
+
+        if stop is False:
+            for wrong_letter in temp_wrong_letters[:]:
+                if wrong_letter in word and word in all_words:
+                    all_words.remove(word)
+                    stop = True
+
+        if stop is False:
+            for correct_letter in temp_correct_letters[:]:
+                if correct_letter not in word:
+                    if word in all_words:
+                        all_words.remove(word)
+
+
+def main(arguments):
+    host = arguments[len(arguments) - 2]  # "proj1.3700.network"
+
+    if arguments[0] == "-p":
+        port = int(arguments[1])
+    else:
+        port = 27993
+
+    if "-s" in arguments:
+        if "-p" not in arguments:
+            port = 27994
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((host, port))
+        client_socket = ssl.wrap_socket(client_socket)
+    else:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect((host, port))
+
+    username = arguments[len(arguments) - 1]  # "kosko.n"
+
+    msg = {"type": "hello", "northeastern_username": username}
+    client_socket.sendall(json.dumps(msg).encode() + b'\n')  # sends the start message
+
+    message = json.loads(client_socket.recv(1024).decode())
+    ID = message["id"]
+
+    msg = {"type": "guess", "id": ID, "word": "adieu"}
+    client_socket.sendall(json.dumps(msg).encode() + b'\n')
+
+    counter = 0
+
+    while message["type"] != "bye":
+        if len(all_words) != 0:
+            all_words.remove(all_words[0])
+
+        message = json.loads(client_socket.recv(1024).decode())
+
+        if message["type"] == "retry":
+            analyze_guess(message["guesses"][counter])
+
+            msg = {"type": "guess", "id": ID, "word": all_words[0]}
+            client_socket.sendall(json.dumps(msg).encode() + b'\n')
+        if message["type"] == "bye":
+            print(message["flag"])
+            client_socket.close()
+        if message["type"] == "error":
+            print("message", message["message"])
+            client_socket.close()
+        counter += 1
+
+
+main(sys.argv)
+# main(["-s", "proj1.3700.network", "kosko.n"])
